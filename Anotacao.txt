@@ -1,0 +1,4 @@
+Alterar a key conforme o acesso http://127.0.0.1:9222/json/version
+
+			browserWSEndpoint:'ws:127.0.0.1:922/.......'
+
