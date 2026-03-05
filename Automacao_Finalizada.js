@@ -1,798 +1,270 @@
-//forma 1 de compilar o código: 
+// ================================
+// OPÇÃO A: Conectar no Chrome já aberto
+// 1) Abra o Chrome com:
+//    chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\\meuPerfilChrome"
+// 2) Confirme que existe: http://127.0.0.1:9222/json/version
+// 3) Use puppeteer.connect({ browserURL: "http://127.0.0.1:9222" })
 
-//Abra o chrome pelo terminal:
-// comando Terminal:          r"
-// na linha 51, troque puppeteer.launch por puppeteer.connect
-// logo, na linha 52 jogue o código < headless: false > para linha 53
-// Por fim, na linha 52 que ficou em branca, acrescente: browserURL:"https://127.0.0.1:9222"
-//Ou seja, ficará assim:
-
-//linha 50                  this.browser = await puppeteer.connect({
-//linha 51                      browserURL: "http://127.0.0.1:9222"
-//linha 52                  });
-//linha 53
-//linha 54                    const pages = await this.browser.pages();
-//linha 55                    this.page = pages[0];    ->Observação, essa linha de código pega a primeira aba aberta
-
-// -----------------------------------------------------------------------------------------------------\\
-
-//Forma 2 de compilar o código:
-
-// Utilizar: --user-data-dir (caminho da pasta onde o chrome salva o perfil do usuario) no launch  ----> Exemplo de caminho padrão do windows: C:\Users\<SEU_USUARIO>\AppData\Local\Google\Chrome\User Data
-
-//this.browser = await puppeteer.launch({
-//  headless: false,
-//  defaultViewport: null,
-//  args: [
-//      "--window-size=1366,768",
-//      "--disable-web-security",
-//      "--disable-features=IsolateOrigins,site-per-process",
-//      '--user-data-dir="C:/meuPerfilChrome"' // caminho de perfil
-//  ]
-//});
-
-//
-
-
+// OPÇÃO B: Iniciar Chrome via Puppeteer (perfil opcional)
+// Use puppeteer.launch({ headless:false, args:[ '--user-data-dir=...' ] })
 
 const puppeteer = require("puppeteer");
-//const path = require("path");  //Ideia para ampliação, porém atualmente não tá servindo para nada
 
-class AtualizacaoDados {
-    constructor() {
-        this.browser = null; //navegador controlado
-        this.page = null; //aba/pagina atual 
+class SefazNfeDownloader {
+  constructor() {
+    this.browser = null;
+    this.page = null;
+  }
+
+  // --------- Inicialização ---------
+  async init({ modo = "connect", browserURL = "http://127.0.0.1:9222", userDataDir = null } = {}) {
+    if (modo === "connect") {
+      // Conecta em um Chrome já aberto com --remote-debugging-port=9222
+      this.browser = await puppeteer.connect({ browserURL });
+      const pages = await this.browser.pages();
+      this.page = pages[0] || (await this.browser.newPage());
+    } else {
+      // Inicia instância própria
+      const args = ["--window-size=1366,768"];
+      if (userDataDir) args.push(`--user-data-dir=${userDataDir}`);
+      this.browser = await puppeteer.launch({ headless: false, defaultViewport: null, args });
+      this.page = await this.browser.newPage();
     }
 
-    async initialize() {
-        // Configura e inicia o navegador
-        // para rodar o código da forma 1, acesse: http://127.0.0.1:9222/json/version
-        this.browser = await puppeteer.connect({ //(Forma 2 de rodar o codigo) -- vai iniciar uma instancia no chrome temporario     
-            browserWSEndpoint: 'ws://127.0.0.1:9222/devtools/browser/26fc9b6e-923f-4c98-bc53-3e42f612e79e'  //  (Retire o comentário para puppeteer.conecttion())
-            //headless: false, // vai mostrar o navegador ------ OBS: Caso amplie o projeto para automação sem navegaçao web alterar para (TRUE)
-            //defaultViewport: null, //Tamanho da tela completa
+    await this.page.setBypassCSP(true);
+    return this;
+  }
 
+  // --------- Utilitários ---------
+  async goto(url) {
+    console.log("Navegando:", url);
+    await this.page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+  }
 
-    //OBERVAÇÃO:        Para puppeteer.conecttion() coloque os args: como comentário, ou seja, da linha 58-65 deixe como comentário
+  async waitVisible(selector, timeout = 20000) {
+    await this.page.waitForSelector(selector, { visible: true, timeout });
+  }
 
-            //args: [
-              //  `--window-size=1366,768`, //Tamanho Jnaela
-                //`--disable-web-security`, //permite cross-origin
-                //`--disable-features=IsolateOrigins,site-per-process`, 
-                //`--ignore-certificate-errors`,
-                //`--ignore-certificate-errors-spki-list`, //ignora erros de certificados (acredito que nao sirva para nada, mas por via das duvidas)
-                //`--ignore-ssl-errors`
-            //]
-        })
+  async type(selector, text, { delay = 40 } = {}) {
+    await this.waitVisible(selector);
+    await this.page.click(selector, { clickCount: 3 });
+    await this.page.type(selector, text, { delay });
+  }
 
-        this.page = await this.browser.newPage();  //Cria nova pagina 
-        await this.page.setBypassCSP(true); //Ignora as politicas de segurança do conteudo 
-        return this; 
-    }
+  async select(selector, value) {
+    await this.waitVisible(selector);
+    await this.page.select(selector, value);
+  }
 
+  async click(selector) {
+    await this.waitVisible(selector);
+    await this.page.click(selector);
+  }
 
-    // Console.log para iniciar página da url, lembrar de trocar a url
-    // linha 77, o networkidle2 tem finalidade de aguardar até que não haja 2 requisição de rede por 500ms
-    // linha 78, o timeout reponsável por tempo de espera ao carregar a página 
-    async navigateTo(url) {
-        console.log(` Navegando para: ${url}`);
-        await this.page.goto(url, {   // Responsavel por navegar na url
-            waitUntil: "networkidle2",
-            timeout: 60000 
-        });
-    }
+  async waitButtonEnabledById(id, timeout = 20000) {
+    await this.page.waitForFunction(
+      (btnId) => {
+        const btn = document.querySelector(btnId);
+        return btn && !btn.disabled;
+      },
+      { timeout },
+      id
+    );
+  }
 
-async navegarParaURLInicial() {
-    try {
-        console.log('🌐 Navegando para URL inicial...');
-        
-        await this.navigateTo("http://127.0.0.1:9222/json/version");
-        
-        await this.page.waitForTimeout(2000);
-        
-        console.log('OK - Navegação para URL inicial concluída');
-        return true;
-        
-    } catch (error) {
-        console.error('ERRO - Erro ao navegar para URL inicial:', error.message);
-        throw error;
-    }
-}
+  // --------- UI simples para período ---------
+  async askPeriodo() {
+    // Injeta HTML mínimo e abre um prompt modal (igual finalidade: coletar cnpj/ano/meses)
+    await this.page.setContent(`
+      <html lang="pt-BR">
+      <body style="font-family:Arial;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <button id="start" style="padding:12px 18px;font-size:16px;cursor:pointer">Configurar período</button>
+      </body>
+      </html>
+    `);
 
-async resetarParaNovoPeriodo() {
-    try {
-        console.log('🔄 Resetando para novo período...');
-        
-        await this.navegarParaURLInicial();
-        
-        await this.navigateTo("https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-publica");
-        
-        await this.page.waitForSelector('input[name="cmpDataInicial"], input[name="cmpDataFinal"]', { 
-            timeout: 15000,
-            visible: true 
-        });
-        
-        console.log('OK - Página resetada com sucesso para novo período');
-        return true;
-        
-    } catch (error) {
-        console.error('ERRO -  Erro ao resetar para novo período:', error.message);
-        throw error;
-    }
-}
+    await this.page.click("#start");
 
-    //Observação: alterar o selector para o valor do campo no html da pagina
+    return await this.page.evaluate(() => {
+      return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999";
+        const box = document.createElement("div");
+        box.style.cssText = "background:#fff;color:#111;padding:14px;border-radius:8px;width:360px";
 
-                                                        // Preencher Campos de Texto \\
+        box.innerHTML = `
+          <h3 style="margin:0 0 10px">Período (SEFAZ)</h3>
+          <label>CNPJ</label><input id="cnpj" style="width:100%;padding:8px;margin:4px 0 10px" value="">
+          <label>Ano</label><input id="ano" type="number" style="width:100%;padding:8px;margin:4px 0 10px" value="2024">
+          <div style="display:flex;gap:10px">
+            <div style="flex:1">
+              <label>Mês início</label><input id="mi" type="number" min="1" max="12" style="width:100%;padding:8px;margin:4px 0 10px" value="1">
+            </div>
+            <div style="flex:1">
+              <label>Mês fim</label><input id="mf" type="number" min="1" max="12" style="width:100%;padding:8px;margin:4px 0 10px" value="12">
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:10px">
+            <button id="cancel">Cancelar</button>
+            <button id="ok" style="background:#0b5;color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer">OK</button>
+          </div>
+        `;
 
-    async fillText(selector, text, options = {}) {
-        //Resumo de finalidade: Vai esperar o elemento "selector" aparecer, e assim preenche o campo com o texto e registra no console
-        try {
-            await this.page.waitForSelector(selector, { 
-                timeout: options.timeout || 10000       // Espera o elemento aparecer na página, como padrao 10s, ou seja, 10000ms
-            });
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
 
-            // Case precise limpar campo antes de preencher, retire o comentário seguinte (Linha 97)
-            // await this.page.click(selector, { clickCount: 3 }); // verificar se há necessidade
-            
-            await this.page.type(selector, text, { delay: options.delay || 50 });  //verificar se há necessidade de alteração
-            console.log(`OK - Campo ${selector} preenchido com: ${text}`);
-        } catch (error) { //tratamento de erro
-            console.error(`ERRO - Erro ao preencher ${selector}:`, error.message);
-            throw error;
-        }
-    }
-    
+        const close = (val) => {
+          document.body.removeChild(overlay);
+          resolve(val);
+        };
 
-                                                            // Selecionar em Dropdown \\ 
+        box.querySelector("#cancel").onclick = () => close({ success: false });
 
-    async selectOption(selector, value, options = {}) {   // Responsavel por selecionar uma opção de elemnto (CNPJ), a qual o html/css será <select>
-        //Resumo de finaldiade: Vai esperar o elemento "selector" (<select>), e daí vai selecionar a opção com o <value> especificado 
-        try {
-            await this.page.waitForSelector(selector, {   //Responsavel por esperar o elemento aparecer
-                timeout: options.timeout || 20000,          //Tempo de espera
-                visible: true //Garante que vai estar visivel na tela
-            });
+        box.querySelector("#ok").onclick = () => {
+          const cnpj = box.querySelector("#cnpj").value.trim();
+          const ano = parseInt(box.querySelector("#ano").value, 10);
+          const mi = parseInt(box.querySelector("#mi").value, 10);
+          const mf = parseInt(box.querySelector("#mf").value, 10);
 
-            await this.page.select(selector, value);    //Vai selecionar o valor (value) no dropdown, ou seja, na estrutura html vai selecionar o campo referente ao elemento (CNPJ)
-            console.log(`OK - Select ${selector} selecionado: ${value}`);
-        } catch (error) {
-            console.error(`ERRO - Erro ao selecionar ${selector}:`, error.message);
-            throw error;
-        }
-    }
-    
-                                                                            // Preencher campos de data \\
+          const ok =
+            cnpj &&
+            Number.isInteger(ano) &&
+            mi >= 1 && mi <= 12 &&
+            mf >= 1 && mf <= 12 &&
+            mi <= mf;
 
-    async fillDate(selector, date, options = {}) {  //Selecionar uma opção de data (calendario) 
-            //Resumo de finalidade: Tenta preencher a data via javascript (definido o valor disparando eventos), daí caso falhe vai usar o método de clicar e digitar
-
-        // Verificar se ha necessidade de preencher com javascript (metodo evaluate)
-        try {
-            await this.page.waitForSelector(selector, { 
-                timeout: options.timeout || 10000 
-            });
-
-             // Metodo 1: Tentar via evaluate (javascript direto)
-            try {
-                await this.page.evaluate((sel, val) => {
-                    const element = document.querySelector(sel); //Responsavel por encontrar o elemento
-                    if (element) {
-                        element.value = val; 
-                        // Disparar eventos para notificar mudançaas
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                }, selector, date);
-            } 
-            catch {
-
-                // Metodo 2: Digitação normal
-                await this.page.click(selector, { clickCount: 3 });
-                await this.page.type(selector, date, { delay: 100 });
-            }
-
-            console.log(`OK -  Data ${selector} preenchida: ${date}`);
-        } catch (error) {
-            console.error(`ERRO - Erro ao preencher data ${selector}:`, error.message);
-            throw error;
-        }
-    }
-
-                                                                    // Clicar em elementos \\
-
-    async click(selector, options = {}) {  //responsavel por clicar no elemento (CNPJ, Siutação)
-        //Resumo de finalidade: Clica em um elemento e opcionalmente aguarda um tempo após o clique 
-        try {
-            await this.page.waitForSelector(selector, {     //vai esperar o timeout (10000). Logo, espeera 10seg para o elemento aparecer
-                timeout: options.timeout || 10000 
-            });
-            await this.page.click(selector);
-            
-            if (options.waitAfter) {
-
-                await this.page.waitForTimeout(options.waitAfter);
-            }
-            
-            console.log(`OK - Clicado em: ${selector}`);
-        } catch (error) {
-            console.error(`ERRO - Erro ao clicar em ${selector}:`, error.message);
-            throw error;
-        }
-    }
-
-    async refreshPage() { //Recarrega a página
-        console.log(" Atualizando página...");
-        await this.page.reload({ waitUntil: "networkidle2" });  //recarrega a pagina e espera até que a quantidade de recursos
-        await this.page.waitForTimeout(2000); //tempo de 2seg (alterar conforme necessidade)
-    }
-
-    // Esperar por elemento
-    async waitForElement(selector, timeout = 10000) {   //tempo de 10seg (alterar conforme necessidade)
-        //Resumo de finalidade: Vai aguardar um elemento aparecer na pagina 
-        await this.page.waitForSelector(selector, { timeout });
-    }
-
-    //fecha o navegador
-    async close() {  
-        if (this.browser) {
-            await this.browser.close();
-        }
-    }
-
-    async handleDownloadModal() {
-    try {
-        console.log('CARREGANDO - Iniciando processo de download...');
-        
-        // Aguardar modal carregar
-        await this.page.waitForFunction(() => {
-            const modal = document.querySelector('.modal-content');
-            return modal && modal.offsetParent !== null; // Verifica se está visível
-        }, { timeout: 15000 });
-
-        console.log('OK - Modal carregado');
-
-        // selecionar "Baixar somente documentos"
-        let documentosSelecionado = false;
-        
-        // Método 1: direto
-        documentosSelecionado = await this.page.evaluate(() => {
-            const options = Array.from(document.querySelectorAll('input[type="checkbox"]'));
-            const documentosOption = options.find(opt => {
-                const label = opt.closest('label');
-                return label && label.textContent.includes('Baixar somente documentos');
-            });
-            
-            if (documentosOption && !documentosOption.checked) {
-                documentosOption.click();
-                return true;
-            }
-            return documentosOption && documentosOption.checked;
-        });
-
-        //if (!documentosSelecionado) {
-            // Método 2: Via XPath
-            //const [documentosElement] = await this.page.$x('//*[contains(text(), "Baixar somente documentos")]');
-            //if (documentosElement) {
-             //   await documentosElement.click();
-              //  documentosSelecionado = true;
-            //}
-        //}
-
-        if (documentosSelecionado) {
-            console.log('OK - "Baixar somente documentos" selecionado');
-        } else {
-            console.log('ATENCAO -  Não foi possível selecionar "Baixar somente documentos"');
-        }
-
-        await this.page.waitForTimeout(10000);
-
-        // Clicar no botão Baixar
-        const baixarClicado = await this.page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const baixarBtn = buttons.find(btn => 
-                btn.textContent.includes('Baixar') && 
-                !btn.textContent.includes('Cancelar') &&
-                !btn.disabled
-            );
-            
-            if (baixarBtn) {
-                baixarBtn.click();
-                return true;
-            }
-            return false;
-        });
-
-        if (baixarClicado) {
-            console.log('OK - Botão "Baixar" clicado via JavaScript');
-        } else {
-            // Fallback com XPath
-            const [baixarBtn] = await this.page.$x('//button[contains(., "Baixar")]');
-            if (baixarBtn) {
-                await baixarBtn.click();
-                console.log('OK - Botão "Baixar" clicado via XPath');
-            } else {
-                throw new Error('Botão Baixar não encontrado');
-            }
-        }
-
-        // Aguardar processo de download
-        await this.page.waitForTimeout(1000);
-        console.log('OK - Processo de download finalizado');
-
-    } catch (error) {
-        console.error('ERRO - Erro no modal de download:', error.message);
-        throw error;
-    }
-}
-
-
-                                                                    // CRIANDO INTERFACE DE INTERAÇÃO \\
-    //Resumo de finalidade: Vai injetar html/js na página para exibir uma modal de configuração de período, daí vai retornar um "promise" que resolve os dados fornecidos pelo usuário ou com (sucess: false) se cancelado
-
-    //0.1 - Interface de Configuraçao 
-    async showPeriodSelection() {
-        return await this.page.evaluate(() => { //responsavel por executar o javascript dentro da pagina 
-            return new Promise((resolve) => {  //aqui vai retornar o "promise" que resolve quando o usuario confirma 
-                // Criar overlay -- Frescuragem de estetica
-                const overlay = document.createElement('div');
-                overlay.style.cssText = `
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0, 0, 0, 0.5);
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 10000;
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                `;
-
-                //Janela de Prompt -- 
-                const promptWindow = document.createElement('div');
-                promptWindow.style.cssText = `
-                    background: #ece9d8;
-                    border: 2px solid #003c74;
-                    padding: 0;
-                    width: 400px;
-                    box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.3);
-                    font-size: 13px;
-                `;
-
-                //Cabeçalho --
-                const header = document.createElement('div');
-                header.style.cssText = `
-                    background: #003c74;
-                    color: white;
-                    padding: 5px 10px;
-                    font-weight: bold;
-                    font-size: 12px;
-                `;
-                header.textContent = 'Configuração de Período - SEFAZ';
-
-                // Conteúdo
-                const content = document.createElement('div');
-                content.style.cssText = `
-                    padding: 20px 15px;
-                    color: #000;
-                `;
-                                            // Campo de entrada interface Js \\
-                                                                //Criando os campos de entrada (Ano, MesInicial, MesFinal)
-                                                                //Detalhes: Linha 270 responsavel pelo CNPJ
-                                                                //          Linha 275 responsavel pelo Ano
-                                                                //          Linha 279 responsavel pelo MesInicial --> Altera valor padrao (1 < MesInicial < 12)
-                                                                //          Linha 283 responsavel pelo MesFinal --> Altera valor padrao (1 < MesFinal < 12)
-                content.innerHTML = `      
-                    <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 15px;">
-                        <div style="width: 32px; height: 32px; background: #003c74; color: white; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: bold;">i</div>
-                        <div>
-                            <div style="margin-bottom: 5px;">Sistema de Automação SEFAZ</div>
-                            <div style="font-weight: bold;">Configure o período para download</div>
-                        </div>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <div>
-                            <label for="cnpjInput" style="display: block; margin-bottom: 5px; font-weight: bold;">CNPJ:</label>
-                            <input type="text" id="cnpjInput" value="0" placeholder="Digite o CNPJ" style="width: 100%; padding: 8px; border: 1px solid #7f9db9; font-size: 13px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label for="anoInput" style="display: block; margin-bottom: 5px; font-weight: bold;">Ano:</label>
-                            <input type="number" id="anoInput" value="2024" style="width: 100%; padding: 8px; border: 1px solid #7f9db9; font-size: 13px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label for="mesInicioInput" style="display: block; margin-bottom: 5px; font-weight: bold;">Mês Inicial:</label>
-                            <input type="number" id="mesInicioInput" min="1" max="12" value="1" style="width: 100%; padding: 8px; border: 1px solid #7f9db9; font-size: 13px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label for="mesFinalInput" style="display: block; margin-bottom: 5px; font-weight: bold;">Mês Final:</label>
-                            <input type="number" id="mesFinalInput" min="1" max="12" value="12" style="width: 100%; padding: 8px; border: 1px solid #7f9db9; font-size: 13px; box-sizing: border-box;">
-                        </div>
-                    </div>
-                `;
-
-                // Área dos botões
-                const buttonArea = document.createElement('div');
-                buttonArea.style.cssText = `
-                    background: #ece9d8;
-                    padding: 10px 15px;
-                    border-top: 1px solid #7f9db9;
-                    display: flex;
-                    justify-content: flex-end;
-                    gap: 10px;
-                `;
-
-                const okButton = document.createElement('button');
-                okButton.textContent = 'OK';
-                okButton.style.cssText = `
-                    background: #007bff;
-                    color: white;
-                    border: 1px solid #0056b3;
-                    padding: 8px 20px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    min-width: 75px;
-                    cursor: pointer;
-                    border-radius: 3px;
-                `;
-
-                const cancelButton = document.createElement('button');
-                cancelButton.textContent = 'Cancelar';
-                cancelButton.style.cssText = `
-                    background: #6c757d;
-                    color: white;
-                    border: 1px solid #545b62;
-                    padding: 8px 20px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    min-width: 75px;
-                    cursor: pointer;
-                    border-radius: 3px;
-                `;
-
-                buttonArea.appendChild(okButton);
-                buttonArea.appendChild(cancelButton);
-
-                promptWindow.appendChild(header);
-                promptWindow.appendChild(content);
-                promptWindow.appendChild(buttonArea);
-                overlay.appendChild(promptWindow);
-                document.body.appendChild(overlay);
-
-                // Focar no primeiro campo (CNPJ)
-                document.getElementById('cnpjInput').focus();
-                document.getElementById('cnpjInput').select();
-
-                const handleConfirm = () => {
-                    const cnpj = document.getElementById('cnpjInput').value.trim();
-                    const ano = document.getElementById('anoInput').value.trim();
-                    const mesInicio = parseInt(document.getElementById('mesInicioInput').value);
-                    const mesFinal = parseInt(document.getElementById('mesFinalInput').value);
-
-                   // Validação básica do CNPJ (apenas verifica se não está vazio)
-                    if (cnpj && ano && mesInicio >= 1 && mesInicio <= 12 && mesFinal >= 1 && mesFinal <= 12 && mesInicio <= mesFinal) {
-                        document.body.removeChild(overlay);
-                        resolve({ 
-                            cnpj: cnpj,
-                            ano: ano, 
-                            mesInicio: mesInicio, 
-                            mesFinal: mesFinal,
-                            success: true 
-                        });
-                    } else {
-                        alert('Por favor, preencha todos os campos corretamente.\n• CNPJ é obrigatório\n• Meses devem estar entre 1 e 12\n• Mês inicial não pode ser maior que o final.');
-                    }
-                };
-
-                const handleCancel = () => {
-                    document.body.removeChild(overlay);
-                    resolve({ success: false });
-                };
-
-                okButton.onclick = handleConfirm;
-                cancelButton.onclick = handleCancel;
-
-               // Enter para confirmar
-                const inputs = [
-                    document.getElementById('cnpjInput'), 
-                    document.getElementById('anoInput'), 
-                    document.getElementById('mesInicioInput'), 
-                    document.getElementById('mesFinalInput')
-                ];
-                inputs.forEach(input => {
-                    input.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') {
-                            handleConfirm();
-                        }
-                    });
-                });
-
-                // ESC para cancelar
-                overlay.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        handleCancel();
-                    }
-                });
-            });
-        });
-    }
-}
-
-
-
-
-//                 ############################### EXCECUÇÃO PRINCIPAL ############################### EXCECUÇÃO PRINCIPAL ###############################
-//                 #                                                                                                                                     #
-//                 #                                                 // ETAPA 1: ATUALIZAÇÃO DE DADOS \\                                                 #
-//                 #                                                                                                                                     #
-//                 ############################### EXCECUÇÃO PRINCIPAL ############################### EXCECUÇÃO PRINCIPAL ###############################
-
-
-(async () => { //Função auto executavel assincrona 
-    const automation = new AtualizacaoDados();  //Cria instancia automaçao 
-    //Resumo de finalidade: Cria uma instancia de AtualizacaoDados, logo vai inicializar o navegador e carrega a interface inicial
-    
-    try { 
-        console.log("INICIANDO ETAPA 1 - ATUALIZAÇÃO DE DADOS para Saída de XML");
-        await automation.initialize(); // inicializa o navegador
-        
-        // 1)  Responsavel poavegar para a página inicial, a qual ta personalizada === (Linha 416-463) -- (Opcioanal) 
-        // Aqui que vai injetar o html completo na pagina --- Conteudo "inutil", pois era uma ideia anterior em colocar a automação com a interface de um index.html
-        await automation.page.setContent(` 
-            <!DOCTYPE html>
-            <html lang="pt-BR">
-            <head>
-                <meta charset="UTF-8">
-                <meta http-equiv="X-UA-Compatible" content="IE=edge">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Automação SEFAZ-GO</title>
-                <style>
-                    body {
-                        display: flex;
-                        flex-direction: column;
-                        justify-content: center;
-                        align-items: center;
-                        height: 100vh;
-                        margin: 0;
-                        font-family: Arial, sans-serif;
-                        background-color: #000000;
-                    }
-                    h1 {
-                        margin-bottom: 20px;
-                        color: #ffffff;
-                        transform: translateY(-100px);
-                        background-color: #ff0000;
-                        padding: 10px 20px;
-                        border-radius: 5px;
-                    }
-                    input[type="button"] {
-                        padding: 10px 20px;
-                        font-size: 16px;
-                        cursor: pointer;
-                        border-radius: 5px;
-                        border: 1px solid #ff0000;
-                        background-color: #ff0000;
-                        color: white;
-                        transition: 0.3s;
-                    }
-                    input[type="button"]:hover {
-                        background-color: #cc0000;
-                    }
-                </style>
-            </head>
-            <body> 
-                <h1>Automação Download de XML Saída</h1>
-                <input id="b" type="button" value="Escolha o Período de Download">
-            </body>
-            </html>
-        `);
-
-        console.log("OK - Interface carregada - Aguardando interação do usuário...");
-
-        // 2) Aguardar clique do botão e mostrar interface de configuração
-        //Resumo de finalidade: Clica automaticamente no botao para exibir o modal e vai aguarda a interaçao do usuario, caso seja cancelado vai fechar o navegador
-        await automation.page.click('#b');
-        const userData = await automation.showPeriodSelection(); 
-
-        if (!userData.success) {
-            console.log("ERRO - Usuário cancelou a operação");
-            await automation.close();
+          if (!ok) {
+            alert("Preencha corretamente: CNPJ obrigatório, meses 1..12 e mês início <= mês fim.");
             return;
-        }
+          }
 
-        const { cnpj, ano, mesInicio, mesFinal } = userData;
+          close({ success: true, cnpj, ano, mesInicio: mi, mesFinal: mf });
+        };
+      });
+    });
+  }
 
-        // 3) Responsavel por gerar períodos baseados na entrada do usuário
-        // Função auxiliar para obter dias no mês
-function getDiasNoMes(mes, ano) {
-    // Contagem dos dias por mês (considerando fevereiro em ano bissexto)
-    const diasPorMes = {
-        1: 31,  // Janeiro //
-        2: (ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0)) ? 29 : 28,  // Fevereiro (cálculo ano bissexto)
-        3: 31,  // Março  //
-        4: 30,  // Abril
-        5: 31,  // Maio  //
-        6: 30,  // Junho 
-        7: 31,  // Julho  //
-        8: 31,  // Agosto  //
-        9: 30,  // Setembro 
-        10: 31, // Outubro   //
-        11: 30, // Novembro
-        12: 31  // Dezembro  //
-    };
-    
-    return diasPorMes[mes];
-}
+  // --------- Datas / períodos ---------
+  getDiasNoMes(mes, ano) {
+    const bissexto = (ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0));
+    const dias = { 1:31, 2:(bissexto?29:28), 3:31, 4:30, 5:31, 6:30, 7:31, 8:31, 9:30, 10:31, 11:30, 12:31 };
+    return dias[mes];
+  }
 
-function gerarPeriodos(mesInicio, mesFinal, ano) {
+  gerarPeriodos(mesInicio, mesFinal, ano) {
     const periodos = [];
     for (let mes = mesInicio; mes <= mesFinal; mes++) {
-        const mesFormatado = mes.toString().padStart(2, '0'); //em padStart() vai adicionar um zero a esquerda, caso contenha apenas 1 caractere. Por exemplo: 1= 01; 2= 02; ...; 9= 09
-        const diasNoMes = getDiasNoMes(mes, ano);  //Calcula quanto dias tem no mes
-        
-        periodos.push({
-            mes: mesFormatado,
-            ano: ano,
-            dias: diasNoMes,
-            descricao: `${mesFormatado}/${ano}`,
-            dataInicial: `01/${mesFormatado}/${ano}`,
-            dataFinal: `${diasNoMes}/${mesFormatado}/${ano}`
-        });
+      const mm = String(mes).padStart(2, "0");
+      const dias = this.getDiasNoMes(mes, ano);
+      periodos.push({
+        descricao: `${mm}/${ano}`,
+        dataInicial: `01/${mm}/${ano}`,
+        dataFinal: `${dias}/${mm}/${ano}`,
+      });
     }
     return periodos;
-}
+  }
 
-        const periodos = gerarPeriodos(mesInicio, mesFinal, ano);
-        console.log(`\n Serão Processados ${periodos.length} períodos:`, periodos);
-        console.log(` CNPJ Configurado: ${cnpj}`);
+  // --------- Fluxo principal por período ---------
+  async processarPeriodo({ cnpj, periodo }) {
+    // Ajuste: seletores podem variar conforme HTML da SEFAZ. Mantidos os seus.
+    await this.waitVisible('input[name="cmpDataInicial"]');
+    await this.type('input[name="cmpDataInicial"]', periodo.dataInicial);
+    await this.type('input[name="cmpDataFinal"]', periodo.dataFinal);
 
-        // 4) Mostrar confirmação na página
-        await automation.page.evaluate((qtdPeriodos, cnpjConfigurado) => {   
-            const confirmacao = document.createElement('div');
-            confirmacao.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #28a745;
-                color: white;
-                padding: 10px 15px;
-                border-radius: 5px;
-                z-index: 10000;
-                font-family: Arial, sans-serif;
-                font-weight: bold;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            `;
-            confirmacao.textContent =  `OK -  Processando ${qtdPeriodos} períodos | CNPJ: ${cnpjConfigurado}`;
-            document.body.appendChild(confirmacao);
-            
-            setTimeout(() => confirmacao.remove(), 3000);
-        }, periodos.length, cnpj);
+    await this.select('select[name="cmpCnpj"]', cnpj);
 
-                                                                //Responsavel por navegar para o site real e iniciar a automação\\
+    // Situação: 2 (conforme seu script)
+    await this.waitVisible('select[name="cmpSituacao"]');
+    await this.select('select[name="cmpSituacao"]', "2");
 
-        console.log("\n Inicializando e Navegando para o site da SEFAZ...");
-        
-        // Entrada no site (Necessidade de Certificado)
-        await automation.navigateTo("https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-publica"); // Alteração de URL 
+    await this.waitButtonEnabledById("#btnPesquisar");
+    await this.click("#btnPesquisar");
 
-                                                                // PRIMEIRA ATUALIZAÇÃO (P- AJUSTAR CONFORME A NECESSIDADE \\
-
-        console.log("\n PRIMEIRA ATUALIZAÇÃO");
-        // await automation.fillText("input[name='cmpNumNfe']", "123");  //---- Linha de teste
-
-
-        for (const periodo of periodos) {  // Inicio do Loop
-
-        //Preenche campo de data
-        await automation.fillDate("input[name='cmpDataInicial']", periodo.dataInicial);
-        await automation.fillDate("input[name='cmpDataFinal']", periodo.dataFinal   );
-
-        //Seleciona o cnpj
-        await  automation.selectOption("select[name='cmpCnpj']", cnpj);
-        //await automation.click("select[name='cmpCnpj']");   -- Caso a linha de cima não funcione, tente com essa (lembrando que, automação click vem primeiro que a automação select)
-
-        await automation.page.waitForSelector("select[name='cmpSituacao']", { visible: true });  //teoricamente a lógica seria esperar o campo de situação aparecer ou atualizar    
-        //await new Promise(resolve => setTimeout(resolve, 1500)); -- Caso a linha de cima não funcione, tente com essa
-
-        //Seleciona o campo de situação
-        await automation.selectOption("select[name='cmpSituacao']", "2");
-        // await automation.click("select[name='cmpSituacao']");  -- Caso a linha de cima não funcione, tente com essa (lembrando que, automação click vem primeiro que a automação select)
-
-
-        //Aguarda o botão de pesquisa esteja habilitado
-        await automation.page.waitForFunction(() => {
-            const btn = document.querySelector("#btnPesquisar");
-            return btn && !btn.disabled;
-});
-
-        //Clica para Pesquisar
-        await automation.click("#btnPesquisar");
-
-        await new Promise(resolve => setTimeout(resolve, 15000));
-
-        const isLoading = await automation.page.evaluate(() => {
-    return document.querySelector('.loading, .spinner') !== null;
-});
-        if (isLoading) {
-            await new Promise(resolve => setTimeout(resolve, 3000));
-}
-
-        //Espera algum elemento de resultado ou até mesmo carregamento concluido 
-    
-        try {
-    await automation.page.waitForSelector("#tabelaResultados, .resultado-grid, table, .table", { 
-        timeout: 15000 
-    });
-} catch (e) {
-    console.log("⏳ Tempo esgotado, verificando se há resultados...");
-    // Continua mesmo com timeout
-}
-
-        // Aguarda o botão de baixar todos os arquivos xml esteja habilitado
-        await automation.page.waitForFunction (() => {
-            const btn = Array.from(document.querySelectorAll('button')).find(button => 
-                button.textContent.includes('Baixar todos os arquivos')
-);
-            return btn && !btn.disabled
-        })
-
-        // Clica no botão "baixar todos os arquivos xml"
-        await automation.page.click("button.btn-download-all") // Responsavel por clicar no botão "baixar todos os arquivos xml" -- Sujeito a alteração do nome do botão
-        await automation.page.click("#dnwld-all-btn-ok")
-
-
-        
-        //await automation.page.waitForSelector("#tabelaResultados, .resultado-grid", { timeout: 5000 });
-        console.log('OK - Botão "Baixar todos os arquivos" clicado');
-
-         //await automation.handleDownloadModal();
-         //await automation.page.selectOption("select[name='downloadOption']")
-         //await new Promise(resolve => setTimeout(resolve, 3000));
-         //console.log(`OK - Download concluído para ${periodo.descricao}`);
-
-         
-        
-        //Aguarda o botao de nova consulta
-        //await automation.page.waitForFunction (() => {
-          //  const btn = document.querySelector("#btnNovaConsulta")
-            //return btn && !btn.disabled;
-        //})
-
-        //clica no botao de nova consulta
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        await automation.navigateTo("https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-publica");
-        console.log(`OK - Preparado com sucesso --- BBBBB: ${periodo.descricao}`);
-        
-    } // Chave de fechamento do loop
-        
-        console.log("\nOK -  Dados atualizados com sucesso!");
-        console.log("OK - Pronto para iniciar os downloads...");
-        
-    } catch (error) {
-        console.error("XXXXX Erro na Etapa 1 XXXXX:", error);
-    } finally {
-        // Manter o navegador aberto para a próxima etapa
-        console.log("Mantendo navegador aberto...");
-        // await automation.close(); // Descomente para fechar automaticamente
+    // Aguarda resultados aparecerem (fallback: segue mesmo se timeout)
+    try {
+      await this.page.waitForSelector("#tabelaResultados, .resultado-grid, table, .table", { timeout: 20000 });
+    } catch {
+      console.log("ATENÇÃO - Timeout aguardando tabela de resultados; seguindo fluxo.");
     }
+
+    // Aguarda existir botão “Baixar todos os arquivos” habilitado
+    await this.page.waitForFunction(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find(b =>
+        b.textContent.includes("Baixar todos os arquivos") && !b.disabled
+      );
+      return !!btn;
+    }, { timeout: 30000 });
+
+    // Clique no botão que você usa (ajuste se necessário)
+    // 1) botão principal
+    await this.page.click("button.btn-download-all");
+
+    // 2) confirmação
+    await this.page.click("#dnwld-all-btn-ok");
+
+    console.log("OK - Download disparado:", periodo.descricao);
+  }
+
+  async run() {
+    const user = await this.askPeriodo();
+    if (!user.success) {
+      console.log("Operação cancelada.");
+      return;
+    }
+
+    const { cnpj, ano, mesInicio, mesFinal } = user;
+    const periodos = this.gerarPeriodos(mesInicio, mesFinal, ano);
+
+    console.log("CNPJ:", cnpj);
+    console.log("Períodos:", periodos.map(p => p.descricao).join(", "));
+
+    // Navega para o site real e executa loop
+    await this.goto("https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-publica");
+
+    for (const periodo of periodos) {
+      console.log("\nProcessando:", periodo.descricao);
+
+      await this.processarPeriodo({ cnpj, periodo });
+
+      // Volta para nova consulta (mais estável do que tentar limpar campos)
+      await this.page.waitForTimeout(3000);
+      await this.goto("https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-publica");
+    }
+
+    console.log("\nOK - Finalizado.");
+  }
+
+  async close() {
+    try {
+      if (this.browser) await this.browser.close();
+    } catch {}
+  }
+}
+
+// ================================
+// EXECUÇÃO
+(async () => {
+  const bot = new SefazNfeDownloader();
+
+  try {
+    // Ajuste aqui:
+    // modo: "connect" ou "launch"
+    // browserURL: se estiver usando connect
+    // userDataDir: se estiver usando launch
+    await bot.init({
+      modo: "connect",
+      browserURL: "http://127.0.0.1:9222",
+      // modo: "launch",
+      // userDataDir: "C:/meuPerfilChrome",
+    });
+
+    await bot.run();
+
+  } catch (e) {
+    console.error("ERRO:", e?.message || e);
+  } finally {
+    // await bot.close();
+    console.log("Navegador mantido aberto (por padrão).");
+  }
 })();
-
-
-
-
-
-//                                                                      Anotações Adicionais  
-
-
-// Logica para resolver o Captcha manualmente
-//    async resolverCaptchaManualmente() {
-//        console.log("\n CAPTCHA detectado - Resolução manual necessaria");
-//        console.log(" resolva o CAPTCHA manualmente no navegador...");
-//        console.log(" Aguardando 60 segundos para resolução manual...");
-//        
-//        // Aguardar usuario resolver CAPTCHA manualmente
-//        await this.page.waitForTimeout(60000);
-//        
-//        console.log(" Continuando automação...");
-//    }                                
